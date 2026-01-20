@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Test Messagerie</title>
+</head>
+<body>
+
+<h3 id="userEmail"></h3>
+
+<button id="openTestChat">Ouvrir chat produit</button>
+
+<hr>
+
+<div id="chatBox" style="display:none;border:1px solid #ccc;padding:10px;width:300px;">
+  <h4 id="chatTitle"></h4>
+
+  <div id="chatMessages" style="height:200px;overflow-y:auto;border:1px solid #ddd;margin-bottom:8px;"></div>
+
+  <input type="text" id="messageInput" placeholder="Message">
+  <button id="sendBtn">Envoyer</button>
+</div>
+
+<script type="module" >
+  
+  import { supabase } from "./supabase.js";
+
+/* ==============================
+   UTILISATEUR CONNECTÉ
+============================== */
+let currentUser = null;
+
+const { data, error } = await supabase.auth.getUser();
+if (error || !data.user) {
+  alert("Utilisateur non connecté");
+  throw error;
+}
+
+currentUser = data.user;
+document.getElementById("userEmail").textContent =
+  "Connecté : " + currentUser.email;
+
+/* ==============================
+   STATE CHAT
+============================== */
+let currentChat = null;
+
+/* ==============================
+   OUVRIR CHAT (TEST PRODUIT)
+============================== */
+document.getElementById("openTestChat").onclick = () => {
+  openChat({
+    otherUserId: "fd625cd6-004b-48cd-a33b-a0eddeb660ce",
+    contextType: "product",
+    contextId: "c588f36c-2e64-4c65-83d7-77ef0b4f7792",
+    title: "Tomates fraîches"
+  });
+};
+
+function openChat({ otherUserId, contextType, contextId, title }) {
+  currentChat = {
+    otherUserId,
+    contextType,
+    contextId
+  };
+
+  document.getElementById("chatTitle").textContent = title;
+  document.getElementById("chatBox").style.display = "block";
+
+  loadMessages();
+}
+
+/* ==============================
+   CHARGER MESSAGES
+============================== */
+async function loadMessages() {
+  if (!currentChat) return;
+
+  let query = supabase
+    .from("messages_convers")
+    .select("*")
+    .or(
+      `and(from_user.eq.${currentUser.id},to_user.eq.${currentChat.otherUserId}),
+       and(from_user.eq.${currentChat.otherUserId},to_user.eq.${currentUser.id})`
+    )
+    .eq("context_type", currentChat.contextType)
+    .order("created_at", { ascending: true });
+
+  // ⚠️ context_id seulement s’il existe
+  if (currentChat.contextId) {
+    query = query.eq("context_id", currentChat.contextId);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error("Erreur loadMessages", error);
+    return;
+  }
+
+  console.log("MESSAGES CHARGÉS :", data);
+
+  const box = document.getElementById("chatMessages");
+  box.innerHTML = "";
+
+  if (!data || data.length === 0) {
+    box.innerHTML = "<em>Aucun message</em>";
+    return;
+  }
+
+  data.forEach(m => {
+    const div = document.createElement("div");
+    div.textContent =
+      (m.from_user === currentUser.id ? "Moi : " : "Lui : ") + m.message;
+    box.appendChild(div);
+  });
+
+  box.scrollTop = box.scrollHeight;
+}
+
+/* ==============================
+   ENVOYER MESSAGE
+============================== */
+document.getElementById("sendBtn").onclick = async () => {
+  const text = document.getElementById("messageInput").value.trim();
+  if (!text || !currentChat) return;
+
+  const { error } = await supabase
+    .from("messages_convers")
+    .insert({
+      from_user: currentUser.id,
+      to_user: currentChat.otherUserId,
+      context_type: currentChat.contextType,
+      context_id: currentChat.contextId,
+      message: text
+    });
+
+  if (error) {
+    console.error("Erreur envoi", error);
+    alert("Erreur envoi message");
+    return;
+  }
+
+  document.getElementById("messageInput").value = "";
+  loadMessages();
+};
+  
+  </script>
+</body>
+</html>
